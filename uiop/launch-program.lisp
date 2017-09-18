@@ -278,13 +278,13 @@ MAKE-INSTANCE. Primarily, it is being made available to enable type-checking."))
       (not-implemented-error 'process-info-pid)))
 
   (defun %process-status (process-info)
+    #-(or allegro clozure cmucl ecl lispworks mkcl sbcl scl)
+    (not-implemented-error '%process-status)
     (if-let (exit-code (slot-value process-info 'exit-code))
       (return-from %process-status
         (if-let (signal-code (slot-value process-info 'signal-code))
           (values :signaled signal-code)
           (values :exited exit-code))))
-    #-(or allegro clasp clozure cmucl ecl lispworks mkcl sbcl scl)
-    (not-implemented-error '%process-status)
     (if-let (process (slot-value process-info 'process))
       (multiple-value-bind (status code)
           (progn
@@ -637,7 +637,7 @@ could block because its output buffers are full."
                        (not-implemented-error 'launch-program))
            #+clozure 'ccl:run-program
            #+(or cmucl ecl scl) 'ext:run-program
-           
+
            #+lispworks ,@'('system:run-shell-command `("/usr/bin/env" ,@command)) ; full path needed
            #+mkcl 'mk-ext:run-program
            #+sbcl 'sb-ext:run-program
@@ -725,4 +725,3 @@ could block because its output buffers are full."
            ;; returns (io err pid) of which we keep io.
            (t (prop 'process io-or-pid)))))
      process-info)))
-
