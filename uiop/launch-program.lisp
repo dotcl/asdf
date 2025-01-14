@@ -296,13 +296,13 @@ MAKE-INSTANCE. Primarily, it is being made available to enable type-checking."))
                         (symbol-call :ext '#:external-process-status process)
                         (not-implemented-error '%process-status))
             #+clozure (ccl:external-process-status process)
-            #+(or cmucl scl) (let ((status (ext:process-status process)))
-                               (if (member status '(:exited :signaled))
-                                   ;; Calling ext:process-exit-code on
-                                   ;; processes that are still alive
-                                   ;; yields an undefined result
-                                   (values status (ext:process-exit-code process))
-                                   status))
+            #+cmucl (let ((status (ext:process-status process)))
+                      (if (member status '(:exited :signaled :stopped))
+                          ;; ext:process-exit-code can also be called
+                          ;; for stopped processes to determine the
+                          ;; signal that stopped them
+                          (values status (ext:process-exit-code process))
+                        status))
             #+ecl (ext:external-process-status process)
             #+lispworks
             ;; a signal is only returned on LispWorks 7+
@@ -327,7 +327,14 @@ MAKE-INSTANCE. Primarily, it is being made available to enable type-checking."))
                          ;; sb-ext:process-exit-code can also be
                          ;; called for stopped processes to determine
                          ;; the signal that stopped them
-                         (values status (sb-ext:process-exit-code process)))))
+                         (values status (sb-ext:process-exit-code process))))
+            #+scl (let ((status (ext:process-status process)))
+                               (if (member status '(:exited :signaled))
+                                   ;; Calling ext:process-exit-code on
+                                   ;; processes that are still alive
+                                   ;; yields an undefined result
+                                   (values status (ext:process-exit-code process))
+                                   status)))
         (case status
           (:exited (setf (slot-value process-info 'exit-code) code))
           (:signaled (let ((%code (%signal-to-exit-code code)))
