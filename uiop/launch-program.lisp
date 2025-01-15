@@ -278,13 +278,13 @@ MAKE-INSTANCE. Primarily, it is being made available to enable type-checking."))
       (not-implemented-error 'process-info-pid)))
 
   (defun %process-status (process-info)
+    #-(or allegro clozure cmucl ecl lispworks mkcl sbcl scl)
+    (not-implemented-error '%process-status)
     (if-let (exit-code (slot-value process-info 'exit-code))
       (return-from %process-status
         (if-let (signal-code (slot-value process-info 'signal-code))
           (values :signaled signal-code)
           (values :exited exit-code))))
-    #-(or allegro clasp clozure cmucl ecl lispworks mkcl sbcl scl)
-    (not-implemented-error '%process-status)
     (if-let (process (slot-value process-info 'process))
       (multiple-value-bind (status code)
           (progn
@@ -296,13 +296,13 @@ MAKE-INSTANCE. Primarily, it is being made available to enable type-checking."))
                         (symbol-call :ext '#:external-process-status process)
                         (not-implemented-error '%process-status))
             #+clozure (ccl:external-process-status process)
-            #+(or cmucl scl) (let ((status (ext:process-status process)))
-                               (if (member status '(:exited :signaled))
-                                   ;; Calling ext:process-exit-code on
-                                   ;; processes that are still alive
-                                   ;; yields an undefined result
-                                   (values status (ext:process-exit-code process))
-                                   status))
+            #+cmucl (let ((status (ext:process-status process)))
+                      (if (member status '(:exited :signaled :stopped))
+                          ;; ext:process-exit-code can also be called
+                          ;; for stopped processes to determine the
+                          ;; signal that stopped them
+                          (values status (ext:process-exit-code process))
+                        status))
             #+ecl (ext:external-process-status process)
             #+lispworks
             ;; a signal is only returned on LispWorks 7+
@@ -327,7 +327,14 @@ MAKE-INSTANCE. Primarily, it is being made available to enable type-checking."))
                          ;; sb-ext:process-exit-code can also be
                          ;; called for stopped processes to determine
                          ;; the signal that stopped them
-                         (values status (sb-ext:process-exit-code process)))))
+                         (values status (sb-ext:process-exit-code process))))
+            #+scl (let ((status (ext:process-status process)))
+                               (if (member status '(:exited :signaled))
+                                   ;; Calling ext:process-exit-code on
+                                   ;; processes that are still alive
+                                   ;; yields an undefined result
+                                   (values status (ext:process-exit-code process))
+                                   status)))
         (case status
           (:exited (setf (slot-value process-info 'exit-code) code))
           (:signaled (let ((%code (%signal-to-exit-code code)))
@@ -637,7 +644,7 @@ could block because its output buffers are full."
                        (not-implemented-error 'launch-program))
            #+clozure 'ccl:run-program
            #+(or cmucl ecl scl) 'ext:run-program
-           
+
            #+lispworks ,@'('system:run-shell-command `("/usr/bin/env" ,@command)) ; full path needed
            #+mkcl 'mk-ext:run-program
            #+sbcl 'sb-ext:run-program
@@ -725,4 +732,3 @@ could block because its output buffers are full."
            ;; returns (io err pid) of which we keep io.
            (t (prop 'process io-or-pid)))))
      process-info)))
-
