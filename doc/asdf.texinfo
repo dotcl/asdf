@@ -2131,7 +2131,7 @@ ASDF will compute dependencies from the
 
 @example
 (uiop:define-package :my-lib/interface/order
-  (:use :closer-common-lisp
+  (:use :cl :closer-mop)
    :my-lib/interface/definition
    :my-lib/interface/base)
   (:mix :fare-utils :uiop :alexandria)
@@ -2152,7 +2152,7 @@ context.  For example:
 @example
 (uiop:define-package :my-lib/interface/all
   (:nicknames :my-lib-interface)
-  (:use :closer-common-lisp)
+  (:use :cl :closer-mop)
   (:mix :fare-utils :uiop :alexandria)
   (:use-reexport
    :my-lib/interface/definition
