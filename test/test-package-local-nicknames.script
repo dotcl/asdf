@@ -13,8 +13,7 @@
   (defparameter +test-data+
     #+sbcl      '(:sb-ext    :sb :exit)
     #+ccl       '(:ccl       :cc :quit)
-    #+ecl       '(:ext       :ex :exit)
-    #+abcl      '(:ext       :ex :quit)
+    #+(or ecl abcl cmu) '(:ext       :ex :exit)
     #+clasp     '(:core      :ex :quit)
     #+lispworks '(:lispworks :ex :quit)
     #+allegro   '(:excl      :ex :exit))
