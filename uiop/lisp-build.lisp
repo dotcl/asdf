@@ -426,7 +426,11 @@ WITH-COMPILATION-UNIT. One of three functions required for deferred-warnings sup
                                 sb-c::*compiler-warning-count*
                                 sb-c::*compiler-style-warning-count*
                                 sb-c::*compiler-note-count*)
-                :for value = (symbol-value what)
+                ;; in more recent SBCLs, sb-c::*aborted-compilation-unit-count*
+                ;; cannot be accessed outside a complation unit. [2025/11/10:rpg]
+                :for value = (handler-case (symbol-value what)
+                               (type-error () 0)
+                               (unbound-variable () 0))
                 :when (plusp value)
                   :collect `(,what . ,value)))))
 
