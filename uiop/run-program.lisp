@@ -560,8 +560,21 @@ RUN-PROGRAM returns 3 values:
 or an indication of failure via the EXIT-CODE of the process"
     (declare (ignorable input output error-output if-input-does-not-exist if-output-exists
                         if-error-output-exists element-type external-format ignore-error-status))
-    #-(or abcl allegro clasp clisp clozure cmucl cormanlisp ecl gcl lispworks mcl mkcl sbcl scl xcl)
+    #-(or abcl allegro clasp clisp clozure cmucl cormanlisp dotcl ecl gcl lispworks mcl mkcl sbcl scl xcl)
     (not-implemented-error 'run-program)
+    #+dotcl
+    (return-from run-program
+      (let* ((args (if (stringp command) (list "cmd" "/C" command) command))
+             (result (dotcl::%run-process (first args) (rest args))))
+        (if (zerop (first result))
+            (let* ((stdout (second result))
+                   (out-val (cond ((streamp output) (write-string stdout output) nil)
+                                  ((eq output t) (write-string stdout *standard-output*) nil)
+                                  (t nil))))
+              (values out-val nil 0))
+            (if ignore-error-status
+                (values nil nil (first result))
+                (error 'subprocess-error :code (first result) :command command)))))
     (apply (if (or force-shell
                    ;; Per doc string, set FORCE-SHELL to T if we get command as a string.
                    ;; But don't override user's specified preference. [2015/06/29:rpg]
