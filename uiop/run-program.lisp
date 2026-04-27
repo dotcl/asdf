@@ -565,16 +565,25 @@ or an indication of failure via the EXIT-CODE of the process"
     #+dotcl
     (return-from run-program
       (let* ((args (if (stringp command) (list "cmd" "/C" command) command))
-             (result (dotcl::%run-process (first args) (rest args))))
-        (if (zerop (first result))
-            (let* ((stdout (second result))
-                   (out-val (cond ((streamp output) (write-string stdout output) nil)
-                                  ((eq output t) (write-string stdout *standard-output*) nil)
-                                  (t nil))))
-              (values out-val nil 0))
-            (if ignore-error-status
-                (values nil nil (first result))
-                (error 'subprocess-error :code (first result) :command command)))))
+             (result (dotcl::%run-process (first args) (rest args)))
+             (exit-code (first result))
+             (stdout (second result))
+             (stderr (third result)))
+        (flet ((apply-spec (spec raw-string default-stream)
+                 (cond
+                   ((or (eq spec :string) (eq spec 'string)) raw-string)
+                   ((eq spec :lines) (loop for line in (split-string raw-string :separator '(#\newline #\return))
+                                           unless (equal line "") collect line))
+                   ((streamp spec) (write-string raw-string spec) nil)
+                   ((eq spec t) (write-string raw-string default-stream) nil)
+                   (t nil))))
+          (let ((out-val (apply-spec output stdout *standard-output*))
+                (err-val (if (eq error-output :output)
+                             nil
+                             (apply-spec error-output stderr *error-output*))))
+            (if (or (zerop exit-code) ignore-error-status)
+                (values out-val err-val exit-code)
+                (error 'subprocess-error :code exit-code :command command))))))
     (apply (if (or force-shell
                    ;; Per doc string, set FORCE-SHELL to T if we get command as a string.
                    ;; But don't override user's specified preference. [2015/06/29:rpg]
