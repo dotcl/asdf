@@ -6,6 +6,10 @@ variables:
   # Just let the runner fetch and update the submodules for us.
   GIT_SUBMODULE_STRATEGY: normal
   I_AGREE_TO_ALLEGRO_EXPRESS_LICENSE: "yes"
+  CI_DEBUG_TRACE: 0
+  ALLOW_FAILURE: false
+  # set the architecture, for CMUCL
+  SET_ARCH: "false"
 
 # Split regression testing into a separate stage than upgrade tests. The
 # upgrade tests tend to run slower and are generally less important than
@@ -26,19 +30,99 @@ workflow:
 # Build jobs
 ###############################################################################
 
-Build ASDF:
+.on_cl_net:
+  rules:
+    - if: '$CI_SERVER_URL == "https://gitlab.common-lisp.net"'
+
+.on_sift_net:
+  tags:
+    - docker
+  rules:
+    - if: '$CI_SERVER_URL == "https://git.sift.net"'
+
+.matrix_common_lisp:
+  parallel:
+    matrix:
+      - l: sbcl
+        IMAGE: rpgoldman/sbcl:trixie
+
+      - l: allegro
+        IMAGE: rpgoldman/allegro11express
+
+      - l: allegro
+        IMAGE: rpgoldman/allegro11express
+        variant: modern
+
+      - l: abcl
+        IMAGE: rpgoldman/abcl:1.9.2-jdk21-jammy
+
+      - l: ccl
+        IMAGE: clfoundation/ccl:1.13-trixie
+
+      - l: clisp
+
+      - l: ecl
+        IMAGE: rpgoldman/ecl:26.3.27-trixie
+
+      - l: cmucl
+
+.matrix_regression_pass:
+  parallel:
+    matrix:
+      - l: sbcl
+        IMAGE: rpgoldman/sbcl:trixie
+
+      - l: allegro
+        IMAGE: rpgoldman/allegro11express
+
+      - l: allegro
+        IMAGE: rpgoldman/allegro11express
+        variant: modern
+
+      - l: abcl
+        IMAGE: rpgoldman/abcl:1.9.2-jdk21-jammy
+
+      - l: ccl
+        IMAGE: clfoundation/ccl:1.13-trixie
+
+      - l: clisp
+
+.matrix_regression_fail:
+  parallel:
+    matrix:
+      - l: ecl
+        IMAGE: rpgoldman/ecl:26.3.27-trixie
+
+      - l: cmucl
+
+
+.build_ASDF:
   stage: build
-  image: containers.common-lisp.net/cl-docker-images/sbcl:latest
+  image:
+    name: rpgoldman/sbcl:trixie
+    # entrypoint: ["/bin/bash"]
   script:
+    # - echo "Running custom entrypoint."
     - make
   artifacts:
     when: always
     paths:
       - build/asdf.lisp
 
-Build docs:
+build_ASDF_sift:
+  extends:
+    - .build_ASDF
+    - .on_sift_net
+
+build_ASDF_cl_net:
+  extends:
+    - .build_ASDF
+    - .on_cl_net
+
+.build_docs:
   stage: build
-  image: buildpack-deps:buster
+  image:
+    name: buildpack-deps:trixie
   script:
     - apt-get update
     - apt-get install -y --no-install-recommends texinfo texlive
@@ -51,14 +135,47 @@ Build docs:
       - doc/asdf.pdf
       - doc/*.log
 
+build_docs_sift:
+  extends:
+    - .build_docs
+    - .on_sift_net
+
+build_docs_cl_net:
+  extends:
+    - .build_docs
+    - .on_cl_net
+
+# test-vars:
+#   stage: build
+#   script:
+#     - echo "CI_SERVER_URL=$CI_SERVER_URL"
+#     - echo "CI_SERVER_HOST=$CI_SERVER_HOST"
+
+
+# test_entrypoint_override:
+#   stage: build
+#   rules:
+#     - when: always
+#   image:
+#     name: rpgoldman/sbcl:trixie
+#     entrypoint: ["/bin/bash", "-c", "echo 'Custom entrypoint worked'"]
+#   script:
+#     - echo "If you see this, entrypoint override is allowed"
+#     - echo "Check above for 'Entrypoint override disabled' warning"
+
 ###############################################################################
 # Regression tests
 ###############################################################################
 
 .Regression test template:
   stage: regression
-  image: $IMAGE
+  rules:
+    - when: never
+  image:
+    name: $IMAGE
+    entrypoint: [""]
   variables:
+    RUNNER_SCRIPT_TIMEOUT: 60m
     IMAGE_TAG: latest
     IMAGE: containers.common-lisp.net/cl-docker-images/$l:$IMAGE_TAG
   script:
@@ -75,28 +192,64 @@ Build docs:
     when:
       - job_execution_timeout
 
-Regression test:
-  extends: .Regression test template
-  parallel:
-    matrix:
-      - l: [abcl, ccl, clisp, cmucl, ecl, sbcl]
-        IMAGE_TAG: latest
-      # Use only bullseye images; bookworm images seem
-      # incompatible with the runner.
-      - l: ccl
-        IMAGE: rpgoldman/ccl:1.13-bullseye
-      - l: sbcl
-        IMAGE: rpgoldman/sbcl:2.4.6-bullseye
-      - l: clasp
-        IMAGE_TAG: "b14e329f49998275579926da2a737885ceb2cea7"
-      # drop ancient ABCL version
-      # - l: abcl
-      #   IMAGE_TAG: 1.7.1-jdk8
-      - l: allegro
-        IMAGE: rpgoldman/allegro11express
-      - l: allegro
-        IMAGE: rpgoldman/allegro11express
-        variant: modern
+# Regression test:
+#   extends: .Regression test template
+#   parallel:
+#     matrix:
+#       - l: [abcl, ccl, clisp, cmucl, ecl, sbcl]
+#         IMAGE_TAG: latest
+#       - l: clasp
+#         IMAGE_TAG: "b14e329f49998275579926da2a737885ceb2cea7"
+#       # drop ancient ABCL version
+#       # - l: abcl
+#       #   IMAGE_TAG: 1.7.1-jdk8
+#       - l: allegro
+#         IMAGE: rpgoldman/allegro11express
+#       - l: allegro
+#         IMAGE: rpgoldman/allegro11express
+#         variant: modern
+
+.regression_test:
+  rules:
+    - when: always
+  extends:
+    - .Regression test template
+    - .matrix_regression_pass
+  image:
+    name: $IMAGE
+    entrypoint: [""]
+
+regression_test_sift:
+  extends:
+    - .regression_test
+    - .on_sift_net
+
+regression_test_cl_net:
+  extends:
+    - .regression_test
+    - .on_cl_net
+
+
+.regression_tests_with_known_failures:
+  rules:
+    - when: always               # can't be run because of timeout.
+  allow_failure: true
+  # variables:
+  #   RUNNER_SCRIPT_TIMEOUT: 90m
+  extends:
+    - .regression_test
+    - .matrix_regression_fail
+
+regression_test_fail_sift:
+  extends:
+    - .regression_tests_with_known_failures
+    - .on_sift_net
+
+regression_test_fail_cl_net:
+  extends:
+    - .regression_tests_with_known_failures
+    - .on_cl_net
+
 
 ###############################################################################
 # Upgrade tests
@@ -104,7 +257,12 @@ Regression test:
 
 .Upgrade test template:
   stage: upgrade
-  image: $IMAGE
+  rules:
+    - when: never
+    - if: $RUN_UPGRADE_TESTS
+  image:
+    name: $IMAGE
+    entrypoint: [""]
   variables:
     IMAGE_TAG: latest
     IMAGE: containers.common-lisp.net/cl-docker-images/$l:$IMAGE_TAG
@@ -117,65 +275,58 @@ Regression test:
     paths:
       - build/results/$l-upgrade.text
   needs: []
-  rules:
-    - if: $RUN_UPGRADE_TESTS
 
-Upgrade test:
-  extends: .Upgrade test template
-  parallel:
-    matrix:
-      - l: [abcl, ccl, clisp, cmucl, ecl, sbcl]
-        IMAGE_TAG: latest
-      - l: clasp
-        IMAGE_TAG: "b14e329f49998275579926da2a737885ceb2cea7"
-      - l: allegro
-        IMAGE: rpgoldman/allegro11express
-      - l: allegro
-        IMAGE: rpgoldman/allegro11express
-        variant: modern
+.upgrade_test:
+  extends:
+    - .Upgrade test template
+    - .matrix_common_lisp
 
-# No more tests are known to fail. But leave commented out in case it needs to
-# be resurrected.
+upgrade_test_sift:
+  extends:
+    - .upgrade_test
+    - .on_sift_net
 
-# Upgrade test known failure:
-#   extends: .Upgrade test template
-#   parallel:
-#     matrix:
-#       - l: []
-#         IMAGE_TAG: latest
-#   allow_failure: true
+upgrade_test_cl_net:
+  extends:
+    - .upgrade_test
+    - .on_cl_net
 
 .REQUIRE upgrade test template:
   extends: .Upgrade test template
-  rules:
-    - if: $RUN_UPGRADE_TESTS
-      when: never
-    - when: on_success
+  # disable temporarily
+  # rules:
+  #   - if: $RUN_UPGRADE_TESTS
+  #     when: never
+  #   - when: on_success
 
-REQUIRE upgrade test:
-  extends: .REQUIRE upgrade test template
+.REQUIRE_upgrade_test:
+  extends:
+    - .REQUIRE upgrade test template
+    - .matrix_common_lisp
   variables:
     ASDF_UPGRADE_TEST_TAGS: REQUIRE
-  parallel:
-    matrix:
-      - l: [abcl, ccl, clisp, cmucl, ecl, sbcl]
-        IMAGE_TAG: latest
-      - l: allegro
-        IMAGE: rpgoldman/allegro11express
-      - l: allegro
-        IMAGE: rpgoldman/allegro11express
-        variant: modern
+
+REQUIRE_upgrade_test_sift:
+  extends:
+    - .REQUIRE_upgrade_test
+    - .on_sift_net
+
+REQUIRE_upgrade_test_cl_net:
+  extends:
+    - .REQUIRE_upgrade_test
+    - .on_cl_net
+
 
 
 # No more tests are known to fail. But leave commented out in case it needs to
 # be resurrected.
 
-REQUIRE upgrade test known failure:
-  extends: .REQUIRE upgrade test template
-  variables:
-    ASDF_UPGRADE_TEST_TAGS: REQUIRE
-  parallel:
-    matrix:
-      - l: [clasp]
-        IMAGE_TAG: "b14e329f49998275579926da2a737885ceb2cea7"
-  allow_failure: true
+# REQUIRE upgrade test known failure:
+#   extends: .REQUIRE upgrade test template
+#   variables:
+#     ASDF_UPGRADE_TEST_TAGS: REQUIRE
+#   parallel:
+#     matrix:
+#       - l: [clasp]
+#         IMAGE_TAG: "b14e329f49998275579926da2a737885ceb2cea7"
+#   allow_failure: true
