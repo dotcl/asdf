@@ -238,7 +238,7 @@ depending on whether *LISP-INTERACTION* is set, enter debugger or die"
     #+mkcl (loop :for i :from 0 :below (mkcl:argc) :collect (mkcl:argv i))
     #+sbcl sb-ext:*posix-argv*
     #+xcl system:*argv*
-    #+dotcl nil
+    #+dotcl (dotcl:command-line-arguments)
     #-(or abcl allegro clasp clisp clozure cmucl ecl gcl genera lispworks mcl mezzano mkcl sbcl scl xcl dotcl)
     (not-implemented-error 'raw-command-line-arguments))
 
