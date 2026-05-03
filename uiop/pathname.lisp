@@ -372,28 +372,6 @@ The intention of this function is to support structured component names,
 e.g., \(:file \"foo/bar\"\), which will be unpacked to relative pathnames."
     (check-type unix-namestring string)
     (check-type dot-dot (member nil :back :up))
-    ;; On Windows, accept backslash as an alternate directory separator and
-    ;; strip a leading drive letter so strings like "C:\\foo/bar/baz" parse
-    ;; as absolute. UNIX namestrings reserve #\\ for filename literals and
-    ;; have no concept of drive letters, so leave them alone on non-Windows.
-    #+(or windows mswindows os-windows)
-    (when (and (>= (length unix-namestring) 2)
-               (or (find #\\ unix-namestring)
-                   (and (alpha-char-p (char unix-namestring 0))
-                        (eql (char unix-namestring 1) #\:))))
-      (when (find #\\ unix-namestring)
-        (setf unix-namestring (substitute #\/ #\\ unix-namestring)))
-      (when (and (>= (length unix-namestring) 2)
-                 (alpha-char-p (char unix-namestring 0))
-                 (eql (char unix-namestring 1) #\:))
-        ;; "C:/foo" -> "/foo"   (absolute, drive letter discarded)
-        ;; "C:foo"  -> "/foo"   (treat drive-relative as absolute too;
-        ;;                       drive-relative is rare and ambiguous in CL)
-        (setf unix-namestring
-              (if (and (>= (length unix-namestring) 3)
-                       (eql (char unix-namestring 2) #\/))
-                  (subseq unix-namestring 2)
-                  (concatenate 'string "/" (subseq unix-namestring 2))))))
     (if (and (not (find #\/ unix-namestring)) (not ensure-directory)
              (plusp (length unix-namestring)))
         (values :relative () unix-namestring t)
