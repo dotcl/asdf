@@ -564,8 +564,12 @@ or an indication of failure via the EXIT-CODE of the process"
     (not-implemented-error 'run-program)
     #+dotcl
     (return-from run-program
-      (let* ((args (if (stringp command) (list "cmd" "/C" command) command))
-             (result (dotcl::%run-process (first args) (rest args)))
+      (let* ((args (if (stringp command)
+                       (if (os-windows-p)
+                           (list "cmd" "/c" command)
+                           (list "/bin/sh" "-c" command))
+                       command))
+             (result (dotcl:run-process (first args) (rest args)))
              (exit-code (first result))
              (stdout (second result))
              (stderr (third result)))
