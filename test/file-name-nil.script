@@ -1,0 +1,13 @@
+;;; -*- Lisp -*-
+
+;;; A defsystem whose component name is eliminated by a reader
+;;; conditional (here, #-cl, which fires on every CL impl) used to
+;;; error with DUPLICATE-NAMES because find-component on a NIL name
+;;; returns the parent itself, tripping the duplicate-name guard.
+;;; The component should now be silently skipped.
+
+(with-asdf-session (:override t)
+  (load-system :file-name-nil)
+  (let ((sys (find-system :file-name-nil)))
+    (assert (find-component sys "file1"))
+    (assert (= 1 (length (component-children sys))))))
