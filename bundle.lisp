@@ -263,12 +263,23 @@ for all the linkable object files associated with the system or its dependencies
   (defmethod output-files ((o bundle-op) (c system))
     (bundle-output-files o c))
 
-  #-(or clasp ecl mkcl)
+  #-(or clasp dotcl ecl mkcl)
   (progn
     (defmethod perform ((o image-op) (c system))
       (dump-image (output-file o c) :executable (typep o 'program-op)))
     (defmethod perform :before ((o program-op) (c system))
       (setf *image-entry-point* (ensure-function (component-entry-point c)))))
+
+  ;; dotcl: save-application recompiles from source; no heap-dump semantics.
+  ;; Pass :system so save-application collects transitive ASDF sources itself.
+  ;; :toplevel is the raw entry-point string from the .asd (:entry-point "pkg:main").
+  #+dotcl
+  (defmethod perform ((o program-op) (c system))
+    (call-function "dotcl:save-application"
+                   (namestring (first (output-files o c)))
+                   :system (component-name c)
+                   :executable t
+                   :toplevel (component-entry-point c)))
 
   (defclass compiled-file (file-component)
     ((type :initform #-(or clasp ecl mkcl) (compile-file-type) #+(or clasp ecl mkcl) "fasb"))

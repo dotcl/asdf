@@ -310,8 +310,11 @@ children."))
                                 ;; list ends
          &allow-other-keys) options
       (declare (ignore perform explain output-files operation-done-p builtin-system-p))
+      ;; nil name means all #+impl feature conditionals were false → skip component entirely
+      (when (null name) (return-from parse-component-form nil))
       (check-component-input type name weakly-depends-on depends-on components)
       (when (and parent
+                 name ;; nil name (all #+impl feature conditionals false) → skip check
                  (find-component parent name)
                  (not ;; ignore the same object when rereading the defsystem
                   (typep (find-component parent name)
@@ -374,19 +377,18 @@ children."))
       :for c-form :in components
       :for c = (parse-component-form component c-form
                                      :previous-serial-components previous-components)
-      :for name :of-type string = (component-name c)
-      :when serial-p
-        ;; if this is an if-feature component, we need to make a serial link
-        ;; from previous components to following components -- otherwise should
-        ;; the IF-FEATURE component drop out, the chain of serial dependencies will be
-        ;; broken.
-        :unless (component-if-feature c)
-          :do (setf previous-components nil)
-        :end
-        :and
-          :do (push name previous-components)
-      :end
-      :collect c))
+      ;; nil means all #+impl conditionals were false (no name); skip this component
+      :when c
+        :do (let ((name (component-name c)))
+              (when serial-p
+                ;; if this is an if-feature component, we need to make a serial link
+                ;; from previous components to following components -- otherwise should
+                ;; the IF-FEATURE component drop out, the chain of serial dependencies will be
+                ;; broken.
+                (unless (component-if-feature c)
+                  (setf previous-components nil))
+                (push name previous-components)))
+        :and :collect c))
 
   ;; the following are all systems that Stas Boukarev maintains and refuses to fix,
   ;; hoping instead to make my life miserable. Instead, I just make ASDF ignore them.
