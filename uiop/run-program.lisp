@@ -422,7 +422,7 @@ or whether it's already taken care of by the implementation's underlying run-pro
     (when (member :stream (list input output error-output))
       (parameter-error "~S: ~S is not allowed as synchronous I/O redirection argument"
                        'run-program :stream))
-    #+(or abcl allegro clozure cmucl ecl (and lispworks os-unix) mkcl sbcl scl)
+    #+(or abcl allegro clozure cmucl dotcl ecl (and lispworks os-unix) mkcl sbcl scl)
     (let (#+(or abcl ecl mkcl)
             (version (parse-version
                       #-abcl
@@ -562,38 +562,15 @@ or an indication of failure via the EXIT-CODE of the process"
                         if-error-output-exists element-type external-format ignore-error-status))
     #-(or abcl allegro clasp clisp clozure cmucl cormanlisp dotcl ecl gcl lispworks mcl mkcl sbcl scl xcl)
     (not-implemented-error 'run-program)
-    #+dotcl
-    (return-from run-program
-      (let* ((args (if (stringp command)
-                       (if (os-windows-p)
-                           (list "cmd" "/c" command)
-                           (list "/bin/sh" "-c" command))
-                       command))
-             (result (dotcl:run-process (first args) (rest args)))
-             (exit-code (first result))
-             (stdout (second result))
-             (stderr (third result)))
-        (flet ((apply-spec (spec raw-string default-stream)
-                 (cond
-                   ((or (eq spec :string) (eq spec 'string)) raw-string)
-                   ((eq spec :lines) (loop for line in (split-string raw-string :separator '(#\newline #\return))
-                                           unless (equal line "") collect line))
-                   ((streamp spec) (write-string raw-string spec) nil)
-                   ((eq spec t) (write-string raw-string default-stream) nil)
-                   (t nil))))
-          (let ((out-val (apply-spec output stdout *standard-output*))
-                (err-val (if (eq error-output :output)
-                             nil
-                             (apply-spec error-output stderr *error-output*))))
-            (if (or (zerop exit-code) ignore-error-status)
-                (values out-val err-val exit-code)
-                (error 'subprocess-error :code exit-code :command command))))))
+    ;; dotcl proceeds through the normal LAUNCH-PROGRAM path below — its
+    ;; #+dotcl branch in launch-program.lisp uses dotcl:launch-process, and
+    ;; UIOP's slurp-input-stream handles every output spec.
     (apply (if (or force-shell
                    ;; Per doc string, set FORCE-SHELL to T if we get command as a string.
                    ;; But don't override user's specified preference. [2015/06/29:rpg]
                    (and (stringp command)
                         (or (not force-shell-suppliedp)
-                            #-(or allegro clisp clozure sbcl) (os-cond ((os-windows-p) t))))
+                            #-(or allegro clisp clozure dotcl sbcl) (os-cond ((os-windows-p) t))))
                    #+(or clasp clisp cormanlisp gcl (and lispworks os-windows) mcl xcl) t
                    ;; A race condition in ECL <= 16.0.0 prevents using ext:run-program
                    #+ecl #.(if-let (ver (parse-version (lisp-implementation-version)))
