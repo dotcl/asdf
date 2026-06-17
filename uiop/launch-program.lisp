@@ -222,11 +222,7 @@ argument to pass to the internal RUN-PROGRAM"
      (exit-code :initform nil)
      ;; If the platform allows it, distinguish exiting with a code
      ;; >128 from exiting in response to a signal by setting this code
-     (signal-code :initform nil)
-     ;; #+dotcl only: background threads that feed/drain the child's stdio
-     ;; pipes when a spec is a file or NIL (dotcl:launch-process always pipes,
-     ;; so non-:STREAM redirections are copied in Lisp). Joined by CLOSE-STREAMS.
-     (dotcl-helpers :initform nil))
+     (signal-code :initform nil))
     (:documentation "This class should be treated as opaque by programmers, except for the
 exported PROCESS-INFO-* functions.  It should never be directly instantiated by
 MAKE-INSTANCE. Primarily, it is being made available to enable type-checking."))
@@ -495,12 +491,7 @@ or :error-output."
                       (list bidir-stream)
                       (list (slot-value process-info 'input-stream)
                             (slot-value process-info 'output-stream)))))
-      (when stream (close stream)))
-    ;; #+dotcl: wait for the feed/drain threads to finish copying file<->pipe
-    ;; before the process is reaped and any temp output file is read back.
-    #+dotcl
-    (dolist (helper (slot-value process-info 'dotcl-helpers))
-      (dotcl:thread-join helper)))
+      (when stream (close stream))))
 
   (defun launch-program (command &rest keys
                          &key
@@ -565,90 +556,37 @@ stream. Additionally, the implementations that support streams may have
 differing behavior on how those streams are filled with data. If data is not
 periodically read from the child process and sent to the stream, the child
 could block because its output buffers are full."
-    ;; dotcl: spawn via dotcl:launch-process, which redirects the child's
-    ;; stdin/stdout/stderr to live Lisp streams. A spec of :STREAM is exposed
-    ;; through PROCESS-INFO so UIOP's run-program can slurp/vomit it; UIOP
-    ;; reduces every active output/input spec (:string, :lines, a stream, T, a
-    ;; function) to :STREAM. The remaining specs reach us as a file pathname (a
-    ;; temp file, when run-program already has another active stream) or NIL.
-    ;; Since dotcl:launch-process only pipes, those non-:STREAM redirections are
-    ;; serviced by background threads that copy file<->pipe (and drain NIL pipes
-    ;; so a chatty child never blocks on a full buffer). Threads are joined by
-    ;; CLOSE-STREAMS. A string COMMAND is wrapped in the platform shell,
-    ;; mirroring the other implementations.
+    ;; dotcl: dotcl:launch-process handles every redirection target natively —
+    ;; :STREAM (a pipe exposed to Lisp), a file pathname, NIL (discard, draining
+    ;; the pipe so a chatty child never blocks), or T/:INHERIT (inherit our
+    ;; handle) — so we just hand it the resolved specs and expose the :STREAM
+    ;; pipes through PROCESS-INFO for run-program to slurp/vomit. A string COMMAND
+    ;; is wrapped in the platform shell, mirroring the other implementations.
     #+dotcl
     (return-from launch-program
-      (progn
-       ;; Apply IF-(OUTPUT|ERROR-OUTPUT)-EXISTS / IF-INPUT-DOES-NOT-EXIST up front
-       ;; (e.g. :supersede truncates the file) since the drain threads below open
-       ;; output files in :append mode, exactly as the other implementations rely on.
-       (%handle-if-does-not-exist input if-input-does-not-exist)
-       (%handle-if-exists output if-output-exists)
-       (%handle-if-exists error-output if-error-output-exists)
-       (let* ((proc-command
-               (etypecase command
-                 (string (os-cond ((os-windows-p) (list "cmd" "/c" command))
-                                  (t (list "/bin/sh" "-c" command))))
-                 (list command)))
-             (process (dotcl:launch-process
-                       (car proc-command) (cdr proc-command)
-                       (when directory (native-namestring directory))))
-             (process-info (make-instance 'process-info))
-             (child-in (dotcl:process-input process))
-             (child-out (dotcl:process-output process))
-             (child-err (dotcl:process-error process))
-             (helpers '()))
-        (flet ((spawn (name thunk) (push (dotcl:make-thread thunk :name name) helpers)))
+      (flet ((spec (x) (if (or (stringp x) (pathnamep x)) (native-namestring x) x)))
+        (let* ((proc-command
+                (etypecase command
+                  (string (os-cond ((os-windows-p) (list "cmd" "/c" command))
+                                   (t (list "/bin/sh" "-c" command))))
+                  (list command)))
+               (process (dotcl:launch-process
+                         (car proc-command) (cdr proc-command)
+                         :directory (when directory (native-namestring directory))
+                         :input (spec input) :output (spec output)
+                         :error (spec error-output)
+                         :if-input-does-not-exist if-input-does-not-exist
+                         :if-output-exists if-output-exists
+                         :if-error-output-exists if-error-output-exists))
+               (process-info (make-instance 'process-info)))
           (setf (slot-value process-info 'process) process)
-          ;; --- stdin ---
-          (cond
-            ((eq input :stream)
-             (setf (slot-value process-info 'input-stream) child-in))
-            ((or (stringp input) (pathnamep input))
-             (spawn "dotcl-feed-stdin"
-                    (lambda ()
-                      (unwind-protect
-                           (with-open-file (f input :direction :input
-                                                    :element-type element-type
-                                                    :external-format external-format)
-                             (copy-stream-to-stream f child-in :element-type element-type))
-                        (close child-in)))))
-            (t ;; NIL / :interactive: no input — close stdin so the child sees EOF
-             (close child-in)))
-          ;; --- stdout ---
-          (cond
-            ((eq output :stream)
-             (setf (slot-value process-info 'output-stream) child-out))
-            ((or (stringp output) (pathnamep output))
-             (spawn "dotcl-drain-stdout"
-                    (lambda ()
-                      (with-open-file (f output :direction :output
-                                               :if-exists :append :if-does-not-exist :create
-                                               :element-type element-type
-                                               :external-format external-format)
-                        (copy-stream-to-stream child-out f :element-type element-type)))))
-            (t ;; NIL: drain & discard so a full pipe can't block the child
-             (spawn "dotcl-drain-stdout"
-                    (lambda () (copy-stream-to-stream child-out (make-broadcast-stream)
-                                                      :element-type element-type)))))
-          ;; --- stderr ---
-          (cond
-            ((eq error-output :stream)
-             (setf (slot-value process-info 'error-output-stream) child-err))
-            ((or (stringp error-output) (pathnamep error-output))
-             (spawn "dotcl-drain-stderr"
-                    (lambda ()
-                      (with-open-file (f error-output :direction :output
-                                                      :if-exists :append :if-does-not-exist :create
-                                                      :element-type element-type
-                                                      :external-format external-format)
-                        (copy-stream-to-stream child-err f :element-type element-type)))))
-            (t ;; NIL or :OUTPUT (merge into stdout unsupported): drain & discard
-             (spawn "dotcl-drain-stderr"
-                    (lambda () (copy-stream-to-stream child-err (make-broadcast-stream)
-                                                      :element-type element-type)))))
-          (setf (slot-value process-info 'dotcl-helpers) helpers))
-        process-info)))
+          (when (eq input :stream)
+            (setf (slot-value process-info 'input-stream) (dotcl:process-input process)))
+          (when (eq output :stream)
+            (setf (slot-value process-info 'output-stream) (dotcl:process-output process)))
+          (when (eq error-output :stream)
+            (setf (slot-value process-info 'error-output-stream) (dotcl:process-error process)))
+          process-info)))
     #-(or abcl allegro clasp clozure cmucl ecl (and lispworks os-unix) mkcl sbcl scl)
     (progn command keys input output error-output directory element-type external-format
            if-input-does-not-exist if-output-exists if-error-output-exists ;; ignore
