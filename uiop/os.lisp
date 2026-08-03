@@ -206,7 +206,7 @@ then returning the non-empty string value of the variable"
     "The type of Lisp implementation used, as a short UIOP-standardized keyword"
     (first-feature
      '(:abcl (:acl :allegro) (:ccl :clozure) :clisp (:corman :cormanlisp)
-       (:cmu :cmucl :cmu) :clasp :ecl :gcl
+       (:cmu :cmucl :cmu) :clasp :dotcl :ecl :gcl
        (:lwpe :lispworks-personal-edition) (:lw :lispworks)
        :mcl :mezzano :mkcl :sbcl :scl (:smbx :symbolics) :xcl)))
 
