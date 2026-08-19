@@ -197,7 +197,17 @@ after having found a .asd file? True by default.")
 
   (defun wrapping-source-registry ()
     `(:source-registry
-      #+(or clasp ecl sbcl dotcl) (:tree ,(resolve-symlinks* (lisp-implementation-directory)))
+      #+(or clasp ecl sbcl) (:tree ,(resolve-symlinks* (lisp-implementation-directory)))
+      ;; dotcl's implementation directory is the PARENT of contrib/, so unlike
+      ;; SBCL_HOME (which holds the contribs and the core and nothing else) it is
+      ;; the whole working tree in a source checkout. Scanning that would make
+      ;; every .asd anywhere in the tree answer find-system -- a project's system
+      ;; shadowed by a same-named one elsewhere, and a vendored asdf checkout that
+      ;; asdf then tries to rebuild. Same intent as the arm above, scoped to the
+      ;; directory that actually holds the bundled systems.
+      #+dotcl (:tree ,(resolve-symlinks*
+                       (merge-pathnames* (parse-unix-namestring "contrib/")
+                                         (lisp-implementation-directory))))
       :inherit-configuration
       #+mkcl (:tree ,(translate-logical-pathname "SYS:"))
       #+cmucl (:tree #p"modules:")
