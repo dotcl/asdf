@@ -34,7 +34,8 @@
         #+clozure (with-pathname-defaults () (ccl:native-translated-namestring p)) ; see ccl bug 978
         #+(or cmucl scl) (ext:unix-namestring p nil)
         #+sbcl (sb-ext:native-namestring p)
-        #-(or clozure cmucl sbcl scl)
+        #+dotcl (dotcl:native-namestring p)
+        #-(or clozure cmucl sbcl scl dotcl)
         (os-cond
          ((os-unix-p) (unix-namestring p))
          (t (namestring p))))))
@@ -50,7 +51,8 @@ a CL pathname satisfying all the specified constraints as per ENSURE-PATHNAME"
                  #+cmucl (uiop/os::parse-unix-namestring* string)
                  #+sbcl (sb-ext:parse-native-namestring string)
                  #+scl (lisp::parse-unix-namestring string)
-                 #-(or clozure cmucl sbcl scl)
+                 #+dotcl (dotcl:parse-native-namestring string)
+                 #-(or clozure cmucl sbcl scl dotcl)
                  (os-cond
                   ((os-unix-p) (parse-unix-namestring string :ensure-directory ensure-directory))
                   (t (parse-namestring string))))))
