@@ -108,6 +108,11 @@ This is designed to abstract away the implementation specific quit forms."
         :all t))
     #+clasp
     (clasp-debug:print-backtrace :stream stream :count count)
+    #+dotcl
+    (loop :for (name . args) :in (dotcl:backtrace-with-args)
+          :for i :from 0
+          :while (or (null count) (< i count))
+          :do (safe-format! stream "~&~D: (~A~{ ~S~})~%" i name args))
     #+(or ecl mkcl)
     (let* ((top (si:ihs-top))
            (repeats (if count (min top count) top))
