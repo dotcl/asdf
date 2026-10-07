@@ -175,6 +175,7 @@ Try to override the defaults to not resolving symlinks, if implementation allows
                                #+clisp '(:circle t :if-does-not-exist :ignore)
                                #+(or cmucl scl) '(:follow-links nil :truenamep nil)
                                #+lispworks '(:link-transparency nil)
+                               #+dotcl '(:resolve-symlinks nil)
                                #+sbcl (when (find-symbol* :resolve-symlinks '#:sb-impl nil)
                                         '(:resolve-symlinks nil))))))
 
